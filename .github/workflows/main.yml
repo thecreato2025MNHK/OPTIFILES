@@ -1,0 +1,323 @@
+name: Compiler APK OptiFile (Cloud)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build_android_apk:
+    name: Generation de OptiFile_v1.0.0.apk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recuperation des fichiers du depot
+        uses: actions/checkout@v4
+
+      - name: Installation de Java 17 pour Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Installation de Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.1'
+          channel: 'stable'
+
+      - name: Preparation du projet Android et des modules natifs
+        run: |
+          MAIN_DART=$(find . -name "main.dart" | head -n 1)
+          MANIFEST=$(find . -name "AndroidManifest.xml" | head -n 1)
+
+          flutter create --org com.example --project-name optifile_manager app_build
+          cp "$MAIN_DART" app_build/lib/main.dart
+          cp "$MANIFEST" app_build/android/app/src/main/AndroidManifest.xml
+
+          # Creation des ponts Dart locaux compatibles AGP 8+ sans erreur Gradle
+          mkdir -p app_build/local_plugins/storage_space/lib
+          cat << 'EOF' > app_build/local_plugins/storage_space/pubspec.yaml
+          name: storage_space
+          version: 1.1.0
+          environment:
+            sdk: '>=3.0.0 <4.0.0'
+          dependencies:
+            flutter:
+              sdk: flutter
+          EOF
+
+          cat << 'EOF' > app_build/local_plugins/storage_space/lib/storage_space.dart
+          import 'package:flutter/services.dart';
+
+          class StorageSpace {
+            final String freeSize;
+            final String usedSize;
+            final String totalSize;
+            final double usageValue;
+            StorageSpace({
+              required this.freeSize,
+              required this.usedSize,
+              required this.totalSize,
+              required this.usageValue,
+            });
+          }
+
+          Future<StorageSpace> getStorageSpace({
+            required int lowOnSpaceThreshold,
+            required int fractionDigits,
+          }) async {
+            const channel = MethodChannel('optifile/app_size');
+            final Map<dynamic, dynamic>? res =
+                await channel.invokeMethod('getStorageInfo');
+            return StorageSpace(
+              freeSize: res?['freeSize']?.toString() ?? '0 Go',
+              usedSize: res?['usedSize']?.toString() ?? '0 Go',
+              totalSize: res?['totalSize']?.toString() ?? '0 Go',
+              usageValue: (res?['usageValue'] as num?)?.toDouble() ?? 0.0,
+            );
+          }
+          EOF
+
+          mkdir -p app_build/local_plugins/installed_apps/lib
+          cat << 'EOF' > app_build/local_plugins/installed_apps/pubspec.yaml
+          name: installed_apps
+          version: 1.5.0
+          environment:
+            sdk: '>=3.0.0 <4.0.0'
+          dependencies:
+            flutter:
+              sdk: flutter
+          EOF
+
+          cat << 'EOF' > app_build/local_plugins/installed_apps/lib/app_info.dart
+          import 'dart:typed_data';
+
+          class AppInfo {
+            final String name;
+            final String packageName;
+            final String versionName;
+            final Uint8List? icon;
+            AppInfo({
+              required this.name,
+              required this.packageName,
+              required this.versionName,
+              this.icon,
+            });
+          }
+          EOF
+
+          cat << 'EOF' > app_build/local_plugins/installed_apps/lib/installed_apps.dart
+          import 'dart:typed_data';
+          import 'package:flutter/services.dart';
+          import 'app_info.dart';
+
+          class InstalledApps {
+            static const MethodChannel _channel = MethodChannel('optifile/app_size');
+
+            static Future<List<AppInfo>> getInstalledApps(
+                bool excludeSystemApps, bool withIcon) async {
+              final List<dynamic>? list =
+                  await _channel.invokeMethod('getInstalledAppsList');
+              if (list == null) return [];
+              return list.map((item) {
+                final map = Map<String, dynamic>.from(item as Map);
+                return AppInfo(
+                  name: map['name']?.toString() ?? 'App',
+                  packageName: map['packageName']?.toString() ?? '',
+                  versionName: map['versionName']?.toString() ?? '1.0',
+                  icon: map['icon'] as Uint8List?,
+                );
+              }).toList();
+            }
+
+            static Future<void> startApp(String packageName) async {
+              await _channel.invokeMethod('startApp', {'packageName': packageName});
+            }
+
+            static Future<void> openSettings(String packageName) async {
+              await _channel.invokeMethod('openSettings', {'packageName': packageName});
+            }
+
+            static Future<bool> uninstallApp(String packageName) async {
+              await _channel.invokeMethod('uninstallApp', {'packageName': packageName});
+              return true;
+            }
+          }
+          EOF
+
+          cat << 'EOF' > app_build/pubspec.yaml
+          name: optifile_manager
+          description: Application de gestion de fichiers et analyse de stockage.
+          publish_to: 'none'
+          version: 1.0.0+1
+
+          environment:
+            sdk: '>=3.2.0 <4.0.0'
+
+          dependencies:
+            flutter:
+              sdk: flutter
+            permission_handler: ^11.3.1
+            photo_manager: ^3.6.0
+            open_filex: ^4.5.0
+            package_info_plus: ^8.0.0
+            storage_space:
+              path: local_plugins/storage_space
+            installed_apps:
+              path: local_plugins/installed_apps
+
+          flutter:
+            uses-material-design: true
+          EOF
+
+          mkdir -p app_build/android/app/src/main/kotlin/com/example/optifile_manager
+          cat << 'EOF' > app_build/android/app/src/main/kotlin/com/example/optifile_manager/MainActivity.kt
+          package com.example.optifile_manager
+
+          import android.content.Intent
+          import android.content.pm.ApplicationInfo
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.drawable.Drawable
+          import android.net.Uri
+          import android.os.Environment
+          import android.os.StatFs
+          import android.provider.Settings
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+          import java.io.ByteArrayOutputStream
+          import java.io.File
+          import java.util.Locale
+
+          class MainActivity: FlutterActivity() {
+              private val CHANNEL = "optifile/app_size"
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+                      when (call.method) {
+                          "getAppSize" -> {
+                              val packageName = call.argument<String>("packageName")
+                              if (packageName != null) {
+                                  try {
+                                      val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                                      var totalBytes = File(appInfo.sourceDir).length()
+                                      appInfo.splitSourceDirs?.forEach { splitPath ->
+                                          totalBytes += File(splitPath).length()
+                                      }
+                                      result.success(totalBytes.toDouble() / (1024.0 * 1024.0))
+                                  } catch (e: Exception) {
+                                      result.success(0.0)
+                                  }
+                              } else {
+                                  result.success(0.0)
+                              }
+                          }
+                          "getStorageInfo" -> {
+                              try {
+                                  val stat = StatFs(Environment.getDataDirectory().path)
+                                  val totalBytes = stat.totalBytes
+                                  val freeBytes = stat.availableBytes
+                                  val usedBytes = totalBytes - freeBytes
+                                  val gb = 1024.0 * 1024.0 * 1024.0
+                                  val freeStr = String.format(Locale.US, "%.1f Go", freeBytes / gb)
+                                  val usedStr = String.format(Locale.US, "%.1f Go", usedBytes / gb)
+                                  val totalStr = String.format(Locale.US, "%.1f Go", totalBytes / gb)
+                                  val ratio = if (totalBytes > 0) usedBytes.toDouble() / totalBytes.toDouble() else 0.0
+                                  result.success(mapOf(
+                                      "freeSize" to freeStr,
+                                      "usedSize" to usedStr,
+                                      "totalSize" to totalStr,
+                                      "usageValue" to ratio
+                                  ))
+                              } catch (e: Exception) {
+                                  result.success(mapOf(
+                                      "freeSize" to "N/A",
+                                      "usedSize" to "N/A",
+                                      "totalSize" to "N/A",
+                                      "usageValue" to 0.0
+                                  ))
+                              }
+                          }
+                          "getInstalledAppsList" -> {
+                              Thread {
+                                  val appList = mutableListOf<Map<String, Any?>>()
+                                  try {
+                                      val packages = packageManager.getInstalledPackages(0)
+                                      for (pkg in packages) {
+                                          val appInfo = pkg.applicationInfo ?: continue
+                                          val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                                          if (isSystem) continue
+                                          val name = packageManager.getApplicationLabel(appInfo).toString()
+                                          val iconBytes = drawableToBytes(packageManager.getApplicationIcon(appInfo))
+                                          appList.add(mapOf(
+                                              "name" to name,
+                                              "packageName" to pkg.packageName,
+                                              "versionName" to (pkg.versionName ?: "1.0"),
+                                              "icon" to iconBytes
+                                          ))
+                                      }
+                                  } catch (_: Exception) {}
+                                  runOnUiThread { result.success(appList) }
+                              }.start()
+                          }
+                          "startApp" -> {
+                              val pkg = call.argument<String>("packageName")
+                              if (pkg != null) {
+                                  val intent = packageManager.getLaunchIntentForPackage(pkg)
+                                  if (intent != null) startActivity(intent)
+                              }
+                              result.success(true)
+                          }
+                          "openSettings" -> {
+                              val pkg = call.argument<String>("packageName")
+                              if (pkg != null) {
+                                  val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                  intent.data = Uri.parse("package:$pkg")
+                                  startActivity(intent)
+                              }
+                              result.success(true)
+                          }
+                          "uninstallApp" -> {
+                              val pkg = call.argument<String>("packageName")
+                              if (pkg != null) {
+                                  val intent = Intent(Intent.ACTION_DELETE)
+                                  intent.data = Uri.parse("package:$pkg")
+                                  startActivity(intent)
+                              }
+                              result.success(true)
+                          }
+                          else -> result.notImplemented()
+                      }
+                  }
+              }
+
+              private fun drawableToBytes(drawable: Drawable): ByteArray? {
+                  return try {
+                      val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+                      val canvas = Canvas(bitmap)
+                      drawable.setBounds(0, 0, canvas.width, canvas.height)
+                      drawable.draw(canvas)
+                      val stream = ByteArrayOutputStream()
+                      bitmap.compress(Bitmap.CompressFormat.PNG, 80, stream)
+                      stream.toByteArray()
+                  } catch (e: Exception) {
+                      null
+                  }
+              }
+          }
+          EOF
+
+      - name: Compilation du fichier APK Release
+        working-directory: app_build
+        run: |
+          flutter pub get
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk ../OptiFile_v1.0.0.apk
+
+      - name: Mise a disposition du fichier APK pret a telecharger
+        uses: actions/upload-artifact@v4
+        with:
+          name: OptiFile_v1.0.0_APK_Android
+          path: OptiFile_v1.0.0.apk
