@@ -1,0 +1,33 @@
+=============================================================================
+COMMENT OBTENIR VOTRE FICHIER "OptiFile_v1.0.0.apk" EN QUELQUES MINUTES
+=============================================================================
+
+Pourquoi l'IA ne peut-elle pas envoyer directement le fichier .apk fini ?
+-> La création d'un fichier binaire .apk nécessite le compilateur Android SDK
+   de Google (plusieurs Go) et une connexion internet vers les serveurs Maven
+   et pub.dev, ce qui est bloqué dans l'environnement sécurisé du chat.
+
+Pour vous éviter toute manipulation technique, cette archive V2 contient DEUX
+systèmes automatisés au choix :
+
+-----------------------------------------------------------------------------
+OPTION A : SANS RIEN INSTALLER SUR VOTRE PC (100% EN LIGNE VIA GITHUB)
+-----------------------------------------------------------------------------
+Si vous ne voulez pas installer Flutter ni Android Studio sur votre PC :
+1. Créez un compte gratuit sur https://github.com et cliquez sur "New repository"
+   (nommez-le par exemple "optifile").
+2. Cliquez sur "uploading an existing file" et glissez tout le contenu décompressé
+   de cette archive (y compris le dossier ".github" et "sources_optifile"),
+   puis cliquez sur "Commit changes".
+3. Cliquez sur l'onglet "Actions" en haut de votre page GitHub : les serveurs
+   de GitHub compilent automatiquement votre application (environ 3 minutes).
+4. Une fois terminé (coche verte), cliquez sur le workflow terminé et téléchargez
+   "OptiFile_v1.0.0_APK_Android" en bas de page !
+
+-----------------------------------------------------------------------------
+OPTION B : EN 1 CLIC SUR VOTRE PC WINDOWS (SI FLUTTER EST INSTALLÉ)
+-----------------------------------------------------------------------------
+1. Décompressez cette archive dans un dossier sur votre PC.
+2. Double-cliquez simplement sur le fichier "COMPILER_SUR_PC.bat".
+3. Le script s'occupe de tout automatiquement et fait apparaître le fichier
+   "OptiFile_v1.0.0.apk" prêt à être envoyé sur votre téléphone !

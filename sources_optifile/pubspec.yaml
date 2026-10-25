@@ -1,0 +1,25 @@
+name: optifile_manager
+description: Application moderne de gestion de fichiers, analyse de stockage et suppression de doublons (Android & iOS).
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  permission_handler: ^11.3.1
+  storage_space: ^1.1.0
+  photo_manager: ^3.5.0
+  installed_apps: ^1.5.0
+  open_filex: ^4.5.0
+  package_info_plus: ^8.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
